@@ -1,39 +1,50 @@
-# Postmortem — DR Drill Lab 23 (TEMPLATE)
+# Postmortem - DR Drill Lab 23
 
-Theo đúng template §4 "Sau Failover: Blameless Postmortem". Blameless: câu hỏi là
-"hệ thống/process nào cho phép chuyện này", không phải "ai làm sai".
+## 1. Timeline
 
-## 1. Timeline (mọi dòng phải có evidence path:line)
-
-| ISO time | Sự kiện | Evidence |
+| ISO time | Su kien | Evidence |
 |---|---|---|
-| | outage bắt đầu | |
-| | user đầu tiên bị ảnh hưởng | |
-| | health check alert | |
-| | operator confirm cutover | |
-| | resolved (request đầu tiên OK từ region phụ) | |
+| 2026-10-09T05:40:14.528+00:00 | Region A bi netblock | `chaos/chaos-events.jsonl:3` |
+| 2026-10-09T05:40:14.880+00:00 | User dau tien nhan loi | `reports/drill-2-withdr.jsonl:26` |
+| 2026-10-09T05:40:29.679+00:00 | Health checker danh dau A `UNHEALTHY` | `reports/health-events.jsonl:2` |
+| 2026-10-09T05:40:29.846+00:00 | Operator/automation xac nhan failover | `reports/runbook-run.jsonl:2` |
+| 2026-10-09T05:40:36.183+00:00 | Region B ready va DNS cutover | `reports/failover-events.jsonl:4`, `reports/failover-events.jsonl:5` |
+| 2026-10-09T05:40:37.873+00:00 | Request dau tien thanh cong tu Region B | `reports/drill-2-withdr.jsonl:37` |
 
-## 2. RTO/RPO đo được vs mục tiêu — gap ở bước nào?
+## 2. RTO/RPO Va Gap
 
-- RTO mục tiêu: 300s · đo được: `__s` · gap: `__s`
-- RPO mục tiêu: 300s · đo được: `__s` (`__` doc bị mất) · gap: `__s`
-- **Bước tốn nhiều giây nhất:** `____` — vì sao?
+- RTO target: `300s`; measured: `23.3s`; headroom/gap: `276.7s`.
+- RPO target: `300s`; measured: `2.0s` va `1` document mat; headroom/gap: `298.0s`.
+- Buoc ton nhieu thoi gian nhat la health-check detection: `15.2s`, chiem khoang
+  `65.2%` RTO. Detection tai `reports/measure-drill-2.json:11`, RTO tai
+  `reports/measure-drill-2.json:20`.
 
-## 3. Root cause (5 whys)
+## 3. Root Cause - 5 Whys
 
-Không phải "vì tôi chạy chaos script". Câu hỏi: *nếu đây là outage thật, bước nào
-trong runbook của tôi sẽ thất bại?*
+1. User gap loi vi Edge van route toi Region A sau khi process bi pause.
+2. Edge khong tu cutover vi active region la control-plane pointer co chu dich.
+3. Pointer chi duoc doi sau khi health checker du ba failure lien tiep.
+4. Nguong ba lan ngan mot loi probe don le gay failover/flapping.
+5. Region B can restore state va warm-up truoc cutover de tranh outage kep.
 
-## 4. Action items (có owner + deadline)
+Ket luan: outage la tinh huong duoc inject; phan lon RTO den tu chinh sach detection
+chong flapping, khong phai thao tac restore hay loi ca nhan.
 
-| # | Action | Owner | Deadline | Giảm RTO/RPO bao nhiêu giây |
+## 4. Action Items
+
+| # | Action item | Owner | Deadline | Tac dong du kien |
 |---|---|---|---|---|
-| 1 | | | | |
-| 2 | | | | |
+| 1 | Chay health probes song song va canh bao khi effective interval vuot 5s | SRE | 2026-10-16 | Giam jitter detection 1-2s |
+| 2 | Thu nghiem interval 2s voi circuit breaker va success threshold | AI Platform | 2026-10-23 | Giam detection floor tu 15s xuong 6s |
+| 3 | Dung SQLite backup API cho snapshot nhat quan | Data Platform | 2026-10-30 | Giam rui ro restore loi/data corruption |
 
-## 5. Ba câu hỏi bắt buộc trả lời
+## 5. Cau Hoi Bat Buoc
 
-1. `interval × threshold` của bạn là bao nhiêu giây? Nó chiếm bao nhiêu % RTO?
-2. Nếu hạ interval xuống 1s, RTO giảm mấy giây — và bạn trả giá gì (§4 flapping)?
-3. Nếu outage kéo dài 6 giờ và region chính mất dữ liệu vĩnh viễn, `docs_lost` của
-   bạn có nghĩa gì với khách hàng?
+1. `interval x threshold = 5s x 3 = 15s`, chiem `64.4%` RTO `23.3s`.
+2. Neu interval la 1s, detection floor con 3s, ly thuyet giam khoang 12s. Doi lai
+   he thong tang 5 lan tan suat probe va de nhay cam hon voi latency spike; can
+   hysteresis/circuit breaker de tranh flapping.
+3. `docs_lost=1` la mot document duoc ghi tai primary sau snapshot cuoi va khong co
+   trong ban restore. Neu outage keo dai 6 gio va primary mat vinh vien, day la du
+   lieu khach hang khong the truy van tai Region B va phai duoc tai tao/reconcile tu
+   source-of-truth, khong chi la mot con so lag ky thuat.

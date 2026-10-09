@@ -10,6 +10,8 @@ run/*
 # duoi day BAT BUOC phai commit de cham diem (xem RUBRIC.md).
 reports/*.jsonl
 reports/*.json
+!reports/measure-drill-1.json
+!reports/measure-drill-2.json
 !reports/drill-1-nodr.jsonl
 !reports/drill-2-withdr.jsonl
 !reports/failover-events.jsonl
@@ -18,7 +20,8 @@ reports/*.json
 
 # File tam do test/thu nghiem sinh ra (khong phai bang chung)
 reports/_*.jsonl
-reports/runbook-run.jsonl
+# Timeline 7 buoc cua runbook la evidence cho postmortem/manual review.
+!reports/runbook-run.jsonl
 
 # Python
 __pycache__/
